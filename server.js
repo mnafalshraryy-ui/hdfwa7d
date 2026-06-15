@@ -43,11 +43,11 @@ wss.on('connection', (ws) => {
                         data.sender = sender.username; // Ensure sender is attached
                         data.timestamp = Date.now();
                         targetWs.send(JSON.stringify(data));
-                    } else if (data.type === 'PRIVATE_CHAT') {
-                        // Send error back if private chat target is offline
+                    } else {
+                        // Send error back if target is offline
                         ws.send(JSON.stringify({
                             type: 'ERROR',
-                            message: `User ${targetUsername} is offline.`
+                            message: `User ${targetUsername} is offline or not found.`
                         }));
                     }
                 }
