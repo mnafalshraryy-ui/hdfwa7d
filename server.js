@@ -14,7 +14,7 @@ wss.on('connection', (ws) => {
             const data = JSON.parse(messageAsString);
             
             if (data.type === 'AUTH') {
-                users.set(ws, { username: data.username, uuid: data.uuid });
+                users.set(ws, { username: data.username, uuid: data.uuid, cosmetics: [] });
                 console.log(`User authenticated: ${data.username}`);
                 broadcastPresence();
             } else if (data.type === 'CHAT') {
@@ -58,6 +58,13 @@ wss.on('connection', (ws) => {
                     }
                 } else {
                     console.log(`[DEBUG] SENDER NOT AUTHENTICATED!`);
+                }
+            } else if (data.type === 'COSMETICS_SYNC') {
+                const user = users.get(ws);
+                if (user) {
+                    user.cosmetics = data.cosmetics || [];
+                    console.log(`[COSMETICS] ${user.username} synced cosmetics:`, user.cosmetics);
+                    broadcastPresence();
                 }
             }
         } catch (e) {
