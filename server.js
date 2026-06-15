@@ -30,26 +30,34 @@ wss.on('connection', (ws) => {
                 }
             } else if (['FRIEND_REQUEST', 'FRIEND_ACCEPT', 'FRIEND_REJECT', 'PRIVATE_CHAT'].includes(data.type)) {
                 const sender = users.get(ws);
+                console.log(`[DEBUG] ${data.type} from ${sender ? sender.username : 'UNKNOWN'} to ${data.target}`);
                 if (sender) {
                     const targetUsername = data.target;
                     let targetWs = null;
+                    // Log all connected users for debugging
+                    console.log(`[DEBUG] All connected users:`);
                     for (const [client, info] of users.entries()) {
+                        console.log(`[DEBUG]   - ${info.username} (readyState: ${client.readyState})`);
                         if (info.username.toLowerCase() === targetUsername.toLowerCase()) {
                             targetWs = client;
-                            break;
                         }
                     }
                     if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-                        data.sender = sender.username; // Ensure sender is attached
+                        data.sender = sender.username;
                         data.timestamp = Date.now();
-                        targetWs.send(JSON.stringify(data));
+                        const payload = JSON.stringify(data);
+                        console.log(`[DEBUG] FORWARDING to ${targetUsername}: ${payload}`);
+                        targetWs.send(payload);
+                        console.log(`[DEBUG] SENT successfully!`);
                     } else {
-                        // Send error back if target is offline
+                        console.log(`[DEBUG] TARGET NOT FOUND or OFFLINE: ${targetUsername}`);
                         ws.send(JSON.stringify({
                             type: 'ERROR',
                             message: `User ${targetUsername} is offline or not found.`
                         }));
                     }
+                } else {
+                    console.log(`[DEBUG] SENDER NOT AUTHENTICATED!`);
                 }
             }
         } catch (e) {
