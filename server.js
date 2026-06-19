@@ -18,7 +18,7 @@ const wss = new WebSocket.Server({ port: port });
 // Groq (FREE — 30 RPM):
 //   AI_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 //   AI_MODEL    = "llama-3.3-70b-versatile"
-const AI_ENDPOINT = process.env.AI_ENDPOINT || 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
+const AI_ENDPOINT = process.env.AI_ENDPOINT || 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 const AI_KEY      = process.env.AI_KEY      || 'AQ.Ab8RN6JKnke-ohnhlNkK-hB3-3A-Nxoj7HhQjIEg32pkKv-bGg';
 const AI_MODEL    = process.env.AI_MODEL    || 'gemini-2.0-flash';
 // =======================================
