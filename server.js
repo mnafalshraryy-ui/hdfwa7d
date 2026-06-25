@@ -3,11 +3,13 @@ const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os'); // تمت الإضافة هنا
 
 const port = process.env.PORT || 8080;
 
 // ========== Skin Storage Setup ==========
-const SKINS_DIR = path.join(__dirname, 'skins');
+// نستخدم مسار النظام المؤقت لتجنب خطأ EACCES
+const SKINS_DIR = path.join(os.tmpdir(), 'skins'); 
 if (!fs.existsSync(SKINS_DIR)) {
     fs.mkdirSync(SKINS_DIR, { recursive: true });
 }
@@ -91,7 +93,6 @@ const server = http.createServer((req, res) => {
 });
 
 // ========== WebSocket Server ==========
-// الآن نربط WebSocket بنفس سيرفر الـ HTTP لتوفير المنفذ
 const wss = new WebSocket.Server({ server });
 
 // ========== AI Configuration ==========
