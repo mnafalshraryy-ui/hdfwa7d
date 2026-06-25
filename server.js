@@ -1,29 +1,108 @@
 const WebSocket = require('ws');
 const https = require('https');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
 const port = process.env.PORT || 8080;
-const wss = new WebSocket.Server({ port: port });
+
+// ========== Skin Storage Setup ==========
+const SKINS_DIR = path.join(__dirname, 'skins');
+if (!fs.existsSync(SKINS_DIR)) {
+    fs.mkdirSync(SKINS_DIR, { recursive: true });
+}
+
+// ========== HTTP Server (For Skins & API) ==========
+const server = http.createServer((req, res) => {
+    // السماح بالوصول من أي مكان (CORS) لدعم اللانشر
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+    }
+
+    // 1. رفع السكنات (Upload Skin API)
+    if (req.method === 'POST' && req.url === '/api/skin/upload') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', () => {
+            try {
+                const data = JSON.parse(body);
+                if (!data.uuid || !data.skinBase64) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'Missing uuid or skinBase64' }));
+                    return;
+                }
+                
+                // تنظيف وإعداد كود Base64 للصورة
+                const base64Data = data.skinBase64.replace(/^data:image\/png;base64,/, "");
+                const filePath = path.join(SKINS_DIR, `${data.uuid}.png`);
+                
+                fs.writeFile(filePath, base64Data, 'base64', (err) => {
+                    if (err) {
+                        console.error('Error saving skin:', err);
+                        res.writeHead(500);
+                        res.end(JSON.stringify({ error: 'Failed to save skin' }));
+                    } else {
+                        console.log(`[SKINS] Custom skin uploaded for UUID: ${data.uuid}`);
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ success: true, message: 'Skin uploaded successfully' }));
+                    }
+                });
+            } catch (e) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+            }
+        });
+        return;
+    }
+
+    // 2. طلب السكنات (Get Skin API)
+    if (req.method === 'GET' && req.url.startsWith('/api/skin/')) {
+        const fileName = req.url.split('/').pop();
+        
+        // حماية من محاولات اختراق المسارات (Directory Traversal)
+        if (!fileName.endsWith('.png') || fileName.includes('..')) {
+            res.writeHead(403);
+            res.end('Forbidden');
+            return;
+        }
+
+        const filePath = path.join(SKINS_DIR, fileName);
+        fs.readFile(filePath, (err, data) => {
+            if (err) {
+                res.writeHead(404);
+                res.end('Skin not found');
+            } else {
+                res.writeHead(200, { 'Content-Type': 'image/png' });
+                res.end(data);
+            }
+        });
+        return;
+    }
+
+    // للروابط غير المعروفة
+    res.writeHead(404);
+    res.end('Nexus Backend Server is running.');
+});
+
+// ========== WebSocket Server ==========
+// الآن نربط WebSocket بنفس سيرفر الـ HTTP لتوفير المنفذ
+const wss = new WebSocket.Server({ server });
+
 // ========== AI Configuration ==========
-// Set these as environment variables on your hosting provider (Render, Railway, etc.)
-// Google Gemini (FREE — 15 RPM, 1500 RPD, no credit card needed):
-//   Get your free key at: https://aistudio.google.com/apikey
-//   AI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-//   AI_MODEL    = "gemini-2.0-flash"
-//   AI_KEY      = "your-gemini-key-here"
-//
-// DeepSeek:
-//   AI_ENDPOINT = "https://api.deepseek.com/chat/completions"
-//   AI_MODEL    = "deepseek-chat"
-//
-// Groq (FREE — 30 RPM):
-//   AI_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-//   AI_MODEL    = "llama-3.3-70b-versatile"
 const AI_ENDPOINT = process.env.AI_ENDPOINT || 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 const AI_KEY      = process.env.AI_KEY      || 'AQ.Ab8RN6JKnke-ohnhlNkK-hB3-3A-Nxoj7HhQjIEg32pkKv-bGg';
 const AI_MODEL    = process.env.AI_MODEL    || 'gemini-2.0-flash';
 // =======================================
+
 // Track connected users
-const users = new Map(); // ws -> { username, uuid, cosmetics, voiceCount, voiceWindowStart, aiCount, aiWindowStart }
+const users = new Map(); 
+
 wss.on('connection', (ws) => {
     console.log('Client connected');
     ws.on('message', (messageAsString) => {
@@ -62,10 +141,8 @@ wss.on('connection', (ws) => {
                     seq: data.seq
                 }, ws);
             } else if (data.type === 'AI_CHAT') {
-                // ★ AI CHAT — proxy request to AI provider, return response to sender only
                 const user = users.get(ws);
                 if (!user) return;
-                // Rate limit: max 10 AI requests per minute per user
                 const now = Date.now();
                 if (now - user.aiWindowStart > 60000) { user.aiWindowStart = now; user.aiCount = 0; }
                 if (++user.aiCount > 10) {
@@ -77,7 +154,6 @@ wss.on('connection', (ws) => {
                     return;
                 }
                 console.log(`[AI] ${user.username}: ${data.prompt}`);
-                // Build the request body
                 const messages = data.messages || [
                     { role: 'system', content: 'You are Nexus AI, a helpful assistant in a Minecraft client.' },
                     { role: 'user', content: data.prompt }
@@ -87,7 +163,6 @@ wss.on('connection', (ws) => {
                     stream: false,
                     messages: messages
                 });
-                // Parse the AI endpoint URL
                 const url = new URL(AI_ENDPOINT);
                 const isHttps = url.protocol === 'https:';
                 const options = {
@@ -192,6 +267,7 @@ wss.on('connection', (ws) => {
         }
     });
 });
+
 function broadcast(obj) {
     const data = JSON.stringify(obj);
     for (const client of wss.clients) {
@@ -200,6 +276,7 @@ function broadcast(obj) {
         }
     }
 }
+
 function broadcastExcept(obj, exceptWs) {
     const data = JSON.stringify(obj);
     for (const client of wss.clients) {
@@ -208,6 +285,7 @@ function broadcastExcept(obj, exceptWs) {
         }
     }
 }
+
 function broadcastPresence() {
     const onlineUsers = Array.from(users.values()).map(u => ({
         username: u.username, uuid: u.uuid, cosmetics: u.cosmetics
@@ -217,7 +295,11 @@ function broadcastPresence() {
         users: onlineUsers
     });
 }
-console.log(`Nexus Backend Server running on port ${port}`);
-console.log(`AI Provider: ${AI_ENDPOINT}`);
-console.log(`AI Model: ${AI_MODEL}`);
-console.log(`AI Key: ${AI_KEY ? '***' + AI_KEY.slice(-4) : 'NOT SET — AI chat will not work!'}`);
+
+// تشغيل الخادم بالكامل
+server.listen(port, () => {
+    console.log(`Nexus Backend Server running on port ${port}`);
+    console.log(`AI Provider: ${AI_ENDPOINT}`);
+    console.log(`AI Model: ${AI_MODEL}`);
+    console.log(`AI Key: ${AI_KEY ? '***' + AI_KEY.slice(-4) : 'NOT SET — AI chat will not work!'}`);
+});
